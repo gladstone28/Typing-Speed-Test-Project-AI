@@ -19,8 +19,8 @@
       --btn2Text:#111827;
       --correct:#1a7f37;
       --wrong:#b42318;
+      --overlay: rgba(17,24,39,0.72);
     }
-    /* Dark mode */
     body.dark{
       --bg:#0b1220;
       --card:#0f172a;
@@ -35,6 +35,7 @@
       --btn2Text:#e5e7eb;
       --correct:#22c55e;
       --wrong:#fb7185;
+      --overlay: rgba(0,0,0,0.72);
     }
 
     body{
@@ -97,6 +98,7 @@
     }
     button.primary{ background: var(--btn); color: var(--btnText); }
     button.secondary{ background: var(--btn2); color: var(--btn2Text); border-color: var(--border); }
+    button.danger{ background: transparent; color: var(--wrong); border-color: var(--border); }
     button:active{ transform: translateY(1px); }
 
     .toggle{
@@ -107,6 +109,37 @@
       background: var(--card);
     }
     .toggle input{ width: 18px; height: 18px; }
+
+    /* Overlay (Countdown + Results) */
+    .overlay{
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: var(--overlay);
+      padding: 16px;
+      z-index: 999;
+    }
+    .overlay.show{ display: flex; }
+    .modal{
+      width: min(520px, 100%);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--card);
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    }
+    .modal h2{ margin: 0 0 8px; }
+    .bigNumber{
+      font-size: 54px;
+      font-weight: 800;
+      letter-spacing: -1px;
+      margin: 8px 0;
+      text-align: center;
+    }
+    .center{ text-align:center; }
+    .divider{ height: 1px; background: var(--border); margin: 12px 0; }
   </style>
 </head>
 <body>
@@ -114,7 +147,7 @@
   <div class="topbar">
     <div>
       <h1 style="margin:0;">Typing Speed Test</h1>
-      <p class="muted" style="margin:6px 0 0;">Type the text below. Your WPM and accuracy update as you type.</p>
+      <p class="muted" style="margin:6px 0 0;">Countdown starts when you press Start. High score is saved.</p>
     </div>
 
     <label class="toggle" title="Toggle dark mode">
@@ -133,30 +166,36 @@
       <div class="stat"><strong>WPM</strong><div id="wpm">0</div></div>
       <div class="stat"><strong>Accuracy</strong><div><span id="accuracy">100</span>%</div></div>
       <div class="stat"><strong>Errors</strong><div id="errors">0</div></div>
+      <div class="stat"><strong>High Score</strong><div><span id="highWpm">—</span> WPM <span class="muted" id="highAcc"></span></div></div>
     </div>
 
     <div class="row">
       <button id="startBtn" class="primary">Start</button>
       <button id="restartBtn" class="secondary">Restart</button>
       <button id="newQuoteBtn" class="secondary">New Quote</button>
+      <button id="resetHighBtn" class="danger">Reset High Score</button>
     </div>
 
     <p class="muted" style="margin:12px 0 0;">
-      Tip: WPM uses the standard formula: (characters ÷ 5) ÷ minutes elapsed.
+      WPM uses the standard formula: (characters ÷ 5) ÷ minutes elapsed.
     </p>
+  </div>
+
+  <!-- Overlay used for countdown and results -->
+  <div id="overlay" class="overlay" role="dialog" aria-modal="true" aria-live="polite">
+    <div class="modal" id="overlayModal"></div>
   </div>
 
 <script>
   // ---- Settings ----
   const TEST_DURATION = 60; // seconds
+  const COUNTDOWN_FROM = 3;
+
   const QUOTES = [
-    // original 4
     "The quick brown fox jumps over the lazy dog.",
     "Practice makes progress, not perfection.",
     "A small step each day adds up to big results.",
     "Good code is clear, simple, and easy to maintain.",
-
-    // +6 new (now 10 total)
     "Focus on accuracy first; speed will follow naturally.",
     "Consistency beats intensity when you are learning new skills.",
     "Great things are built one careful improvement at a time.",
@@ -175,26 +214,83 @@
   const startBtn = document.getElementById("startBtn");
   const restartBtn = document.getElementById("restartBtn");
   const newQuoteBtn = document.getElementById("newQuoteBtn");
+  const resetHighBtn = document.getElementById("resetHighBtn");
+
   const themeToggle = document.getElementById("themeToggle");
+  const highWpmEl = document.getElementById("highWpm");
+  const highAccEl = document.getElementById("highAcc");
+
+  const overlay = document.getElementById("overlay");
+  const overlayModal = document.getElementById("overlayModal");
 
   // ---- State ----
   let targetText = "";
   let timer = null;
   let timeLeft = TEST_DURATION;
   let startedAt = null; // timestamp (ms)
+  let countdownTimer = null;
+  let running = false;
+
+  // ---- LocalStorage keys ----
+  const THEME_KEY = "typingTheme";
+  const HIGH_KEY = "typingHighScore"; // JSON: { wpm, accuracy }
 
   // ---- Theme (saved) ----
-  const savedTheme = localStorage.getItem("typingTheme"); // "dark" or "light"
+  const savedTheme = localStorage.getItem(THEME_KEY); // "dark" or "light"
   if (savedTheme === "dark") {
     document.body.classList.add("dark");
     themeToggle.checked = true;
   }
-
   themeToggle.addEventListener("change", () => {
     document.body.classList.toggle("dark", themeToggle.checked);
-    localStorage.setItem("typingTheme", themeToggle.checked ? "dark" : "light");
+    localStorage.setItem(THEME_KEY, themeToggle.checked ? "dark" : "light");
   });
 
+  // ---- High Score ----
+  function getHighScore() {
+    try {
+      const raw = localStorage.getItem(HIGH_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function setHighScore(score) {
+    localStorage.setItem(HIGH_KEY, JSON.stringify(score));
+    renderHighScore();
+  }
+
+  function renderHighScore() {
+    const hs = getHighScore();
+    if (!hs) {
+      highWpmEl.textContent = "—";
+      highAccEl.textContent = "";
+      return;
+    }
+    highWpmEl.textContent = String(hs.wpm);
+    highAccEl.textContent = `(${hs.accuracy}%)`;
+  }
+
+  function shouldBeatHighScore(current, high) {
+    if (!high) return true;
+    if (current.wpm > high.wpm) return true;
+    if (current.wpm < high.wpm) return false;
+    // tie-break by accuracy
+    return current.accuracy > high.accuracy;
+  }
+
+  // ---- Overlay helpers ----
+  function showOverlay(html) {
+    overlayModal.innerHTML = html;
+    overlay.classList.add("show");
+  }
+  function hideOverlay() {
+    overlay.classList.remove("show");
+    overlayModal.innerHTML = "";
+  }
+
+  // ---- Core functions ----
   function pickQuote() {
     return QUOTES[Math.floor(Math.random() * QUOTES.length)];
   }
@@ -215,9 +311,16 @@
     errorsEl.textContent = "0";
   }
 
-  function resetTest(keepQuote = false) {
+  function clearAllTimers() {
     clearInterval(timer);
     timer = null;
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+  }
+
+  function resetTest(keepQuote = false) {
+    clearAllTimers();
+    running = false;
     timeLeft = TEST_DURATION;
     startedAt = null;
 
@@ -225,35 +328,15 @@
       targetText = pickQuote();
       renderQuote(targetText);
     } else {
-      // clear highlighting
       quoteEl.querySelectorAll("span").forEach(s => s.classList.remove("correct", "wrong"));
     }
 
     inputEl.value = "";
     inputEl.disabled = true;
+    inputEl.placeholder = "Click Start, then begin typing...";
 
     resetStatsUI();
-  }
-
-  function startTest() {
-    if (timer) return; // already running
-    inputEl.disabled = false;
-    inputEl.focus();
-    startedAt = Date.now();
-
-    timer = setInterval(() => {
-      timeLeft--;
-      timeEl.textContent = timeLeft;
-
-      if (timeLeft <= 0) finishTest();
-    }, 1000);
-  }
-
-  function finishTest() {
-    clearInterval(timer);
-    timer = null;
-    inputEl.disabled = true;
-    inputEl.blur();
+    hideOverlay();
   }
 
   function computeStats(typed) {
@@ -286,28 +369,173 @@
     const minutes = Math.max(elapsedSeconds / 60, 1/60);
     const wpm = Math.round((totalTyped / 5) / minutes);
 
-    return { wrongChars, accuracy, wpm };
+    return { correctChars, wrongChars, accuracy, wpm, totalTyped };
   }
 
-  inputEl.addEventListener("input", () => {
-    if (!startedAt) return;
-
+  function updateLiveStats() {
     const typed = inputEl.value;
     const { wrongChars, accuracy, wpm } = computeStats(typed);
-
     errorsEl.textContent = String(wrongChars);
     accuracyEl.textContent = String(accuracy);
     wpmEl.textContent = String(wpm);
+  }
 
-    if (typed.length >= targetText.length) finishTest();
+  function beginCountdownThenStart() {
+    if (running) return;
+
+    // If the overlay is open from previous results, close it
+    hideOverlay();
+
+    // Prepare UI for countdown
+    inputEl.disabled = true;
+    inputEl.value = "";
+    inputEl.placeholder = "Get ready...";
+    quoteEl.querySelectorAll("span").forEach(s => s.classList.remove("correct", "wrong"));
+    resetStatsUI();
+
+    let count = COUNTDOWN_FROM;
+
+    showOverlay(`
+      <h2 class="center">Get Ready</h2>
+      <div class="bigNumber" id="countNum">${count}</div>
+      <p class="muted center">Starting in...</p>
+    `);
+
+    // Use interval to update countdown
+    countdownTimer = setInterval(() => {
+      count--;
+
+      const numEl = document.getElementById("countNum");
+      if (!numEl) return;
+
+      if (count > 0) {
+        numEl.textContent = String(count);
+      } else if (count === 0) {
+        numEl.textContent = "Go!";
+      } else {
+        // start test
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+        hideOverlay();
+        startTestNow();
+      }
+    }, 1000);
+  }
+
+  function startTestNow() {
+    if (running) return;
+    running = true;
+
+    inputEl.disabled = false;
+    inputEl.focus();
+
+    startedAt = Date.now();
+    timeLeft = TEST_DURATION;
+    timeEl.textContent = timeLeft;
+
+    timer = setInterval(() => {
+      timeLeft--;
+      timeEl.textContent = timeLeft;
+
+      // update stats even if they pause typing
+      updateLiveStats();
+
+      if (timeLeft <= 0) finishTest("Time is up!");
+    }, 1000);
+  }
+
+  function finishTest(reasonText = "Finished!") {
+    clearAllTimers();
+    running = false;
+
+    inputEl.disabled = true;
+    inputEl.blur();
+
+    // Final stats snapshot
+    const typed = inputEl.value;
+    const final = computeStats(typed);
+
+    // High score update
+    const high = getHighScore();
+    const currentScore = { wpm: final.wpm, accuracy: final.accuracy };
+
+    const isNewHigh = shouldBeatHighScore(currentScore, high);
+    if (isNewHigh) setHighScore(currentScore);
+    renderHighScore();
+
+    showOverlay(`
+      <h2 class="center">Results</h2>
+      <p class="muted center" style="margin-top:0;">${reasonText}</p>
+
+      <div class="divider"></div>
+
+      <div class="row" style="margin-top:0;">
+        <div class="stat"><strong>Final WPM</strong><div style="font-size:28px;font-weight:800;">${final.wpm}</div></div>
+        <div class="stat"><strong>Final Accuracy</strong><div style="font-size:28px;font-weight:800;">${final.accuracy}%</div></div>
+      </div>
+      <div class="row">
+        <div class="stat"><strong>Errors</strong><div style="font-size:22px;font-weight:700;">${final.wrongChars}</div></div>
+        <div class="stat"><strong>Typed</strong><div style="font-size:22px;font-weight:700;">${final.totalTyped} chars</div></div>
+      </div>
+
+      <div class="divider"></div>
+
+      <p class="center" style="margin:0;">
+        ${isNewHigh ? "<strong>🎉 New High Score!</strong>" : "<span class='muted'>Keep practicing — you’ll beat it.</span>"}
+      </p>
+
+      <div class="row">
+        <button class="primary" id="playAgainBtn">Play Again</button>
+        <button class="secondary" id="newQuoteFromResultsBtn">New Quote</button>
+      </div>
+    `);
+
+    // Hook up modal buttons
+    document.getElementById("playAgainBtn").addEventListener("click", () => {
+      hideOverlay();
+      resetTest(true);
+      beginCountdownThenStart();
+    });
+
+    document.getElementById("newQuoteFromResultsBtn").addEventListener("click", () => {
+      hideOverlay();
+      resetTest(false);
+      beginCountdownThenStart();
+    });
+  }
+
+  // ---- Events ----
+  inputEl.addEventListener("input", () => {
+    if (!startedAt || !running) return;
+    updateLiveStats();
+
+    // optional: finish early when they complete the quote
+    if (inputEl.value.length >= targetText.length) {
+      finishTest("Quote completed!");
+    }
   });
 
-  startBtn.addEventListener("click", startTest);
-  restartBtn.addEventListener("click", () => resetTest(true)); // restart same quote
-  newQuoteBtn.addEventListener("click", () => resetTest(false)); // new quote
+  startBtn.addEventListener("click", beginCountdownThenStart);
+  restartBtn.addEventListener("click", () => {
+    resetTest(true);
+    beginCountdownThenStart();
+  });
+  newQuoteBtn.addEventListener("click", () => {
+    resetTest(false);
+    beginCountdownThenStart();
+  });
 
-  // Init
-  resetTest(false);
+  resetHighBtn.addEventListener("click", () => {
+    localStorage.removeItem(HIGH_KEY);
+    renderHighScore();
+  });
+
+  // ---- Init ----
+  function init() {
+    renderHighScore();
+    resetTest(false);
+  }
+  init();
 </script>
 </body>
 </html>

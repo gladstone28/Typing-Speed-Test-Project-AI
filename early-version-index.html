@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Typing Speed Test</title>
+  <style>
+    :root{
+      --bg:#ffffff;
+      --card:#ffffff;
+      --text:#111827;
+      --muted:#6b7280;
+      --border:#e5e7eb;
+      --quoteBg:#f7f7f7;
+      --inputBg:#ffffff;
+      --btn:#111827;
+      --btnText:#ffffff;
+      --btn2:#e5e7eb;
+      --btn2Text:#111827;
+      --correct:#1a7f37;
+      --wrong:#b42318;
+    }
+    /* Dark mode */
+    body.dark{
+      --bg:#0b1220;
+      --card:#0f172a;
+      --text:#e5e7eb;
+      --muted:#9ca3af;
+      --border:#243042;
+      --quoteBg:#111c33;
+      --inputBg:#0b1220;
+      --btn:#e5e7eb;
+      --btnText:#111827;
+      --btn2:#243042;
+      --btn2Text:#e5e7eb;
+      --correct:#22c55e;
+      --wrong:#fb7185;
+    }
+
+    body{
+      font-family: system-ui, Arial;
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 0 16px;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .topbar{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .muted{ color: var(--muted); font-size: 14px; }
+    .card{
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      background: var(--card);
+    }
+    .quote{
+      font-size: 18px;
+      line-height: 1.6;
+      padding: 12px;
+      border-radius: 12px;
+      background: var(--quoteBg);
+      border: 1px solid var(--border);
+    }
+    .quote span.correct{ color: var(--correct); }
+    .quote span.wrong{ color: var(--wrong); text-decoration: underline; }
+
+    textarea{
+      width: 100%;
+      min-height: 120px;
+      margin-top: 12px;
+      padding: 12px;
+      font-size: 16px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--inputBg);
+      color: var(--text);
+      outline: none;
+    }
+    textarea:disabled{ opacity: 0.7; }
+
+    .row{ display:flex; gap:12px; flex-wrap:wrap; margin-top: 12px; }
+    .stat{
+      flex: 1;
+      min-width: 160px;
+      padding: 12px;
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--card) 85%, var(--quoteBg) 15%);
+      border: 1px solid var(--border);
+    }
+
+    button{
+      padding: 10px 14px;
+      border: 1px solid transparent;
+      border-radius: 12px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button.primary{ background: var(--btn); color: var(--btnText); }
+    button.secondary{ background: var(--btn2); color: var(--btn2Text); border-color: var(--border); }
+    button:active{ transform: translateY(1px); }
+
+    .toggle{
+      display:flex; align-items:center; gap:10px;
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      border-radius: 12px;
+      background: var(--card);
+    }
+    .toggle input{ width: 18px; height: 18px; }
+  </style>
+</head>
+<body>
+
+  <div class="topbar">
+    <div>
+      <h1 style="margin:0;">Typing Speed Test</h1>
+      <p class="muted" style="margin:6px 0 0;">Type the text below. Your WPM and accuracy update as you type.</p>
+    </div>
+
+    <label class="toggle" title="Toggle dark mode">
+      <input id="themeToggle" type="checkbox" />
+      <span class="muted">Dark mode</span>
+    </label>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <div id="quote" class="quote"></div>
+
+    <textarea id="input" placeholder="Click Start, then begin typing..." disabled></textarea>
+
+    <div class="row">
+      <div class="stat"><strong>Time</strong><div><span id="time">60</span>s</div></div>
+      <div class="stat"><strong>WPM</strong><div id="wpm">0</div></div>
+      <div class="stat"><strong>Accuracy</strong><div><span id="accuracy">100</span>%</div></div>
+      <div class="stat"><strong>Errors</strong><div id="errors">0</div></div>
+    </div>
+
+    <div class="row">
+      <button id="startBtn" class="primary">Start</button>
+      <button id="restartBtn" class="secondary">Restart</button>
+      <button id="newQuoteBtn" class="secondary">New Quote</button>
+    </div>
+
+    <p class="muted" style="margin:12px 0 0;">
+      Tip: WPM uses the standard formula: (characters ÷ 5) ÷ minutes elapsed.
+    </p>
+  </div>
+
+<script>
+  // ---- Settings ----
+  const TEST_DURATION = 60; // seconds
+  const QUOTES = [
+    // original 4
+    "The quick brown fox jumps over the lazy dog.",
+    "Practice makes progress, not perfection.",
+    "A small step each day adds up to big results.",
+    "Good code is clear, simple, and easy to maintain.",
+
+    // +6 new (now 10 total)
+    "Focus on accuracy first; speed will follow naturally.",
+    "Consistency beats intensity when you are learning new skills.",
+    "Great things are built one careful improvement at a time.",
+    "Typing is a skill—train it daily and measure your progress.",
+    "Keep your hands relaxed and let rhythm guide your speed.",
+    "Small bugs are teachers; fix them and you level up."
+  ];
+
+  // ---- DOM ----
+  const quoteEl = document.getElementById("quote");
+  const inputEl = document.getElementById("input");
+  const timeEl = document.getElementById("time");
+  const wpmEl = document.getElementById("wpm");
+  const accuracyEl = document.getElementById("accuracy");
+  const errorsEl = document.getElementById("errors");
+  const startBtn = document.getElementById("startBtn");
+  const restartBtn = document.getElementById("restartBtn");
+  const newQuoteBtn = document.getElementById("newQuoteBtn");
+  const themeToggle = document.getElementById("themeToggle");
+
+  // ---- State ----
+  let targetText = "";
+  let timer = null;
+  let timeLeft = TEST_DURATION;
+  let startedAt = null; // timestamp (ms)
+
+  // ---- Theme (saved) ----
+  const savedTheme = localStorage.getItem("typingTheme"); // "dark" or "light"
+  if (savedTheme === "dark") {
+    document.body.classList.add("dark");
+    themeToggle.checked = true;
+  }
+
+  themeToggle.addEventListener("change", () => {
+    document.body.classList.toggle("dark", themeToggle.checked);
+    localStorage.setItem("typingTheme", themeToggle.checked ? "dark" : "light");
+  });
+
+  function pickQuote() {
+    return QUOTES[Math.floor(Math.random() * QUOTES.length)];
+  }
+
+  function renderQuote(text) {
+    quoteEl.innerHTML = "";
+    for (const ch of text) {
+      const s = document.createElement("span");
+      s.textContent = ch;
+      quoteEl.appendChild(s);
+    }
+  }
+
+  function resetStatsUI() {
+    timeEl.textContent = timeLeft;
+    wpmEl.textContent = "0";
+    accuracyEl.textContent = "100";
+    errorsEl.textContent = "0";
+  }
+
+  function resetTest(keepQuote = false) {
+    clearInterval(timer);
+    timer = null;
+    timeLeft = TEST_DURATION;
+    startedAt = null;
+
+    if (!keepQuote) {
+      targetText = pickQuote();
+      renderQuote(targetText);
+    } else {
+      // clear highlighting
+      quoteEl.querySelectorAll("span").forEach(s => s.classList.remove("correct", "wrong"));
+    }
+
+    inputEl.value = "";
+    inputEl.disabled = true;
+
+    resetStatsUI();
+  }
+
+  function startTest() {
+    if (timer) return; // already running
+    inputEl.disabled = false;
+    inputEl.focus();
+    startedAt = Date.now();
+
+    timer = setInterval(() => {
+      timeLeft--;
+      timeEl.textContent = timeLeft;
+
+      if (timeLeft <= 0) finishTest();
+    }, 1000);
+  }
+
+  function finishTest() {
+    clearInterval(timer);
+    timer = null;
+    inputEl.disabled = true;
+    inputEl.blur();
+  }
+
+  function computeStats(typed) {
+    let correctChars = 0;
+    let wrongChars = 0;
+
+    const spans = quoteEl.querySelectorAll("span");
+
+    for (let i = 0; i < spans.length; i++) {
+      const expected = targetText[i];
+      const got = typed[i];
+
+      spans[i].classList.remove("correct", "wrong");
+
+      if (got == null) continue;
+
+      if (got === expected) {
+        correctChars++;
+        spans[i].classList.add("correct");
+      } else {
+        wrongChars++;
+        spans[i].classList.add("wrong");
+      }
+    }
+
+    const totalTyped = typed.length;
+    const accuracy = totalTyped === 0 ? 100 : Math.round((correctChars / totalTyped) * 100);
+
+    const elapsedSeconds = startedAt ? (Date.now() - startedAt) / 1000 : 0;
+    const minutes = Math.max(elapsedSeconds / 60, 1/60);
+    const wpm = Math.round((totalTyped / 5) / minutes);
+
+    return { wrongChars, accuracy, wpm };
+  }
+
+  inputEl.addEventListener("input", () => {
+    if (!startedAt) return;
+
+    const typed = inputEl.value;
+    const { wrongChars, accuracy, wpm } = computeStats(typed);
+
+    errorsEl.textContent = String(wrongChars);
+    accuracyEl.textContent = String(accuracy);
+    wpmEl.textContent = String(wpm);
+
+    if (typed.length >= targetText.length) finishTest();
+  });
+
+  startBtn.addEventListener("click", startTest);
+  restartBtn.addEventListener("click", () => resetTest(true)); // restart same quote
+  newQuoteBtn.addEventListener("click", () => resetTest(false)); // new quote
+
+  // Init
+  resetTest(false);
+</script>
+</body>
+</html>
