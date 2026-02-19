@@ -22,8 +22,6 @@
       --overlay: rgba(17,24,39,0.72);
       --caretBg: rgba(59,130,246,0.18);
       --caretBorder: rgba(59,130,246,0.55);
-      --barTrack: rgba(148,163,184,0.25);
-      --barFill: rgba(59,130,246,0.9);
     }
     body.dark{
       --bg:#0b1220;
@@ -42,8 +40,6 @@
       --overlay: rgba(0,0,0,0.72);
       --caretBg: rgba(96,165,250,0.18);
       --caretBorder: rgba(96,165,250,0.55);
-      --barTrack: rgba(148,163,184,0.18);
-      --barFill: rgba(96,165,250,0.95);
     }
 
     body{
@@ -81,22 +77,6 @@
       border-bottom: 2px solid var(--caretBorder);
       border-radius: 4px;
       padding: 0 1px;
-    }
-
-    /* Progress bar */
-    .progressWrap{
-      margin-top: 10px;
-      border-radius: 999px;
-      background: var(--barTrack);
-      border: 1px solid var(--border);
-      overflow: hidden;
-      height: 10px;
-    }
-    .progressFill{
-      height: 100%;
-      width: 0%;
-      background: var(--barFill);
-      transition: width 80ms linear;
     }
 
     textarea{
@@ -175,16 +155,6 @@
     }
     .center{ text-align:center; }
     .divider{ height: 1px; background: var(--border); margin: 12px 0; }
-    kbd{
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      border: 1px solid var(--border);
-      border-bottom-width: 2px;
-      padding: 2px 6px;
-      border-radius: 8px;
-      background: color-mix(in srgb, var(--card) 80%, var(--quoteBg) 20%);
-      font-size: 12px;
-      color: var(--text);
-    }
   </style>
 </head>
 <body>
@@ -192,9 +162,7 @@
   <div class="topbar">
     <div>
       <h1 style="margin:0;">Typing Speed Test</h1>
-      <p class="muted" style="margin:6px 0 0;">
-        Shortcuts: <kbd>Space</kbd> Start/Pause • <kbd>Esc</kbd> Restart • <kbd>N</kbd> New Quote
-      </p>
+      <p class="muted" style="margin:6px 0 0;">Start → 3…2…1…Go. Pause anytime. High score is saved.</p>
     </div>
 
     <label class="toggle" title="Toggle dark mode">
@@ -205,10 +173,6 @@
 
   <div class="card" style="margin-top:16px;">
     <div id="quote" class="quote"></div>
-
-    <div class="progressWrap" aria-label="Progress">
-      <div id="progressFill" class="progressFill"></div>
-    </div>
 
     <textarea id="input" placeholder="Click Start, then begin typing..." disabled></textarea>
 
@@ -229,7 +193,7 @@
     </div>
 
     <p class="muted" style="margin:12px 0 0;">
-      WPM formula: (characters ÷ 5) ÷ minutes elapsed. Caret shows next character.
+      WPM formula: (characters ÷ 5) ÷ minutes elapsed. Caret highlights the next character.
     </p>
   </div>
 
@@ -276,8 +240,6 @@
   const overlay = document.getElementById("overlay");
   const overlayModal = document.getElementById("overlayModal");
 
-  const progressFill = document.getElementById("progressFill");
-
   // ---- Storage keys ----
   const THEME_KEY = "typingTheme";
   const HIGH_KEY = "typingHighScore"; // {wpm, accuracy}
@@ -292,9 +254,9 @@
   let paused = false;
 
   // For pause/resume time tracking:
-  let startedAt = null;
-  let pausedAt = null;
-  let totalPausedMs = 0;
+  let startedAt = null;      // Date.now when run began
+  let pausedAt = null;       // Date.now when pause pressed
+  let totalPausedMs = 0;     // sum of paused durations
 
   // ---- Theme ----
   const savedTheme = localStorage.getItem(THEME_KEY);
@@ -369,13 +331,6 @@
     if (index < spans.length) spans[index].classList.add("caret");
   }
 
-  // ---- Progress bar ----
-  function setProgress(typedLen) {
-    const total = targetText.length || 1;
-    const pct = Math.max(0, Math.min(100, (typedLen / total) * 100));
-    progressFill.style.width = pct + "%";
-  }
-
   // ---- Timers / Reset ----
   function clearAllTimers() {
     clearInterval(timer); timer = null;
@@ -418,7 +373,6 @@
 
     resetStatsUI();
     setCaret(0);
-    setProgress(0);
     hideOverlay();
   }
 
@@ -471,8 +425,8 @@
     accuracyEl.textContent = String(accuracy);
     wpmEl.textContent = String(wpm);
 
+    // caret position = next index
     setCaret(Math.min(typed.length, targetText.length));
-    setProgress(typed.length);
   }
 
   // ---- Countdown + Start ----
@@ -486,7 +440,6 @@
     clearHighlights();
     resetStatsUI();
     setCaret(0);
-    setProgress(0);
 
     let count = COUNTDOWN_FROM;
 
@@ -494,9 +447,6 @@
       <h2 class="center">Get Ready</h2>
       <div class="bigNumber" id="countNum">${count}</div>
       <p class="muted center">Starting in...</p>
-      <p class="muted center" style="margin-bottom:0;">
-        Shortcuts: <kbd>Space</kbd> Pause • <kbd>Esc</kbd> Restart • <kbd>N</kbd> New Quote
-      </p>
     `);
 
     countdownTimer = setInterval(() => {
@@ -556,6 +506,7 @@
       pauseBtn.textContent = "Resume";
       inputEl.blur();
     } else {
+      // add paused duration
       totalPausedMs += (Date.now() - pausedAt);
       pausedAt = null;
       inputEl.disabled = false;
@@ -579,6 +530,7 @@
     const typed = inputEl.value;
     const final = computeStats(typed);
 
+    // high score logic
     const high = getHighScore();
     const currentScore = { wpm: final.wpm, accuracy: final.accuracy };
     const isNewHigh = shouldBeatHighScore(currentScore, high);
@@ -610,10 +562,6 @@
         <button class="primary" id="playAgainBtn">Play Again</button>
         <button class="secondary" id="newQuoteFromResultsBtn">New Quote</button>
       </div>
-
-      <p class="muted center" style="margin-bottom:0;">
-        Shortcuts: <kbd>Space</kbd> Start/Pause • <kbd>Esc</kbd> Restart • <kbd>N</kbd> New Quote
-      </p>
     `);
 
     document.getElementById("playAgainBtn").addEventListener("click", () => {
@@ -629,7 +577,18 @@
     });
   }
 
-  // ---- Buttons ----
+  // ---- Events ----
+  inputEl.addEventListener("input", () => {
+    if (!running || paused || !startedAt) return;
+
+    updateLiveStats();
+
+    // optional: finish early when quote completed
+    if (inputEl.value.length >= targetText.length) {
+      finishTest("Quote completed!");
+    }
+  });
+
   startBtn.addEventListener("click", beginCountdownThenStart);
   pauseBtn.addEventListener("click", togglePause);
 
@@ -646,51 +605,6 @@
   resetHighBtn.addEventListener("click", () => {
     localStorage.removeItem(HIGH_KEY);
     renderHighScore();
-  });
-
-  // ---- Typing ----
-  inputEl.addEventListener("input", () => {
-    if (!running || paused || !startedAt) return;
-
-    updateLiveStats();
-
-    // optional: finish early when quote completed
-    if (inputEl.value.length >= targetText.length) {
-      finishTest("Quote completed!");
-    }
-  });
-
-  // ---- Keyboard shortcuts ----
-  document.addEventListener("keydown", (e) => {
-    // Don't trigger shortcuts while user is typing normal characters in the textarea
-    // EXCEPT for Space/Escape which we want as controls.
-    const isTypingField = document.activeElement === inputEl;
-
-    // ESC = restart same quote
-    if (e.key === "Escape") {
-      e.preventDefault();
-      resetTest(true);
-      beginCountdownThenStart();
-      return;
-    }
-
-    // N = new quote
-    if (e.key.toLowerCase() === "n" && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      // If user is typing in textarea, we still allow N only when paused/not running
-      if (!isTypingField || paused || !running) {
-        e.preventDefault();
-        resetTest(false);
-        beginCountdownThenStart();
-      }
-      return;
-    }
-
-    // Space = start (if not running), otherwise pause/resume
-    if (e.code === "Space") {
-      e.preventDefault();
-      if (!running) beginCountdownThenStart();
-      else togglePause();
-    }
   });
 
   // ---- Init ----
